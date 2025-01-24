@@ -1,0 +1,172 @@
+// Elementen ophalen
+const chatContainer = document.getElementById("chat-container");
+const plannerTable = document.getElementById("planning-table-body");
+const mealSuggestionsContainer = document.getElementById("meal-suggestions");
+let recognition;
+
+// Configureren van spraakherkenning
+if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = "nl-NL";
+    recognition.interimResults = false;
+
+    recognition.onresult = async function (event) {
+        const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
+        addMessage(transcript, "user-message");
+
+        if (transcript.includes("hey c-search")) {
+            const command = transcript.replace("hey c-search", "").trim();
+
+            // Check op commando's
+            if (command.startsWith("zet op")) {
+                handlePlanningCommand(command);
+            } else if (command.includes("wat eten we")) {
+                askMealQuestions();
+            } else {
+                const response = await getChatGPTResponse(command);
+                addMessage(response, "bot-message");
+                speak(response);
+            }
+        } else {
+            const response = "Ik reageer alleen op 'Hey C-search'.";
+            addMessage(response, "bot-message");
+            speak(response);
+        }
+    };
+
+    recognition.onerror = function () {
+        addMessage("Er is een fout opgetreden bij spraakherkenning.", "bot-message");
+    };
+} else {
+    alert("Spraakherkenning wordt niet ondersteund in deze browser.");
+}
+
+// Start spraakherkenning
+function startListening() {
+    if (recognition) recognition.start();
+}
+
+// Bericht toevoegen aan chat
+function addMessage(text, className) {
+    const messageDiv = document.createElement("div");
+    messageDiv.className = `chat-message ${className}`;
+    messageDiv.textContent = text;
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// ChatGPT API-aanroep
+async function getChatGPTResponse(message) {
+    const apiKey = "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"; 
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: [{ role: "user", content: message }],
+        }),
+    });
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
+// Tekst uitspreken
+function speak(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "nl-NL";
+    window.speechSynthesis.speak(utterance);
+}
+
+// Leerplanner spraakcommando verwerken
+function handlePlanningCommand(command) {
+    const days = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"];
+    const subjects = [
+        "nederlands", "history", "duits", "frans", "engels", "geography",
+        "wiskunde", "filosofie", "muziek", "economie", "bsm", "bedrijfs economie",
+        "biologie", "science physics"
+    ];
+
+    // Probeer de dag, vak en opdracht te vinden
+    const day = days.find(d => command.includes(d));
+    const subject = subjects.find(s => command.includes(s));
+    const taskMatch = command.match(/zet op .*? (.+) voor/);
+    const task = taskMatch ? taskMatch[1] : null;
+
+    if (day && subject && task) {
+        // Dag en vak vinden in tabel en taak toevoegen
+        const rows = plannerTable.getElementsByTagName("tr");
+        for (const row of rows) {
+            if (row.firstElementChild.textContent.toLowerCase() === day) {
+                const cell = row.querySelector(`td[data-subject="${subject}"]`);
+                if (cell) cell.textContent = task;
+                break;
+            }
+        }
+        speak(`Ik heb ${task} toegevoegd aan ${day} voor ${subject}.`);
+    } else {
+        speak("Ik kon de opdracht niet begrijpen. Probeer opnieuw.");
+    }
+}
+
+// Vragen voor maaltijdkiezer
+async function askMealQuestions() {
+    const time = prompt("Hoeveel tijd heb je?");
+    const cost = prompt("Hoeveel mag het kosten?");
+    const preference = prompt("Wat wil je eten? (Pasta, Rijst, Vegetarisch, Weet ik niet)");
+    const allergies = prompt("Heb je allergieën?");
+
+    const prompt = `Geef een maaltijdsuggestie die binnen ${time} minuten bereid kan worden, maximaal €${cost} kost, past bij ${preference} en vrij is van ${allergies}.`;
+    const response = await getChatGPTResponse(prompt);
+    mealSuggestionsContainer.textContent = response;
+    speak(response);
+}
+
+// Maaltijd handmatig toevoegen
+function addMealSuggestion() {
+    const meal = prompt("Voer een maaltijdsuggestie in:");
+    if (meal) {
+        const mealDiv = document.createElement("div");
+        mealDiv.textContent = meal;
+        mealSuggestionsContainer.appendChild(mealDiv);
+    }
+}
+
+// Eventlisteners
+document.getElementById("start-microphone").addEventListener("click", startListening);
+document.getElementById("add-meal-button").addEventListener("click", addMealSuggestion);
+
+// Voeg lege rijen toe aan de tabel voor alle dagen van de week
+function initializePlanner() {
+    const days = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
+    const subjects = [
+        "nederlands", "history", "duits", "frans", "engels", "geography",
+        "wiskunde", "filosofie", "muziek", "economie", "bsm", "bedrijfs economie",
+        "biologie", "science physics"
+    ];
+
+    for (const day of days) {
+        const row = document.createElement("tr");
+
+        // Voeg dagnaam toe
+        const dayCell = document.createElement("td");
+        dayCell.textContent = day;
+        row.appendChild(dayCell);
+
+        // Voeg lege cellen toe voor elk vak
+        for (const subject of subjects) {
+            const cell = document.createElement("td");
+            cell.setAttribute("data-subject", subject);
+            row.appendChild(cell);
+        }
+
+        plannerTable.appendChild(row);
+    }
+}
+
+// Planner initialiseren
+initializePlanner();
+
